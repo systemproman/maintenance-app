@@ -287,8 +287,7 @@ def aplicar_css_global():
     [data-testid="stToolbar"],
     [data-testid="stDecoration"],
     [data-testid="stStatusWidget"],
-    [data-testid="stDeployButton"],
-    [data-testid="collapsedControl"] {
+    [data-testid="stDeployButton"] {
         display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
@@ -416,6 +415,28 @@ def aplicar_css_global():
 
     [data-testid="stNotification"] {
         border-radius: 10px !important;
+    }
+
+    /* BOTÃO DE REABRIR SIDEBAR */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: fixed !important;
+        top: 12px !important;
+        left: 12px !important;
+        z-index: 99999 !important;
+        background: rgba(10, 18, 35, 0.92) !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        border-radius: 12px !important;
+        padding: 2px !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.20) !important;
+    }
+
+    [data-testid="collapsedControl"] button,
+    [data-testid="collapsedControl"] svg {
+        color: #ffffff !important;
+        fill: #ffffff !important;
     }
     """
 
