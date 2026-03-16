@@ -19,7 +19,6 @@ from database import get_supabase
 BASE_DIR = Path(__file__).parent
 LOGO_FILE = BASE_DIR / "logo_fsl.png"
 
-# tenta encontrar fundo em jpg/jpeg/png
 FUNDO_FILE = None
 for nome in ("fundo_fsl.jpg", "fundo_fsl.jpeg", "fundo_fsl.png"):
     candidato = BASE_DIR / nome
@@ -270,101 +269,60 @@ def aplicar_css_global():
     fundo_b64 = image_to_base64(FUNDO_FILE)
     fundo_mime = mime_type_from_path(FUNDO_FILE)
 
-    css = """
+    cor_botao = "#0b3b60"
+    cor_botao_hover = "#0b3b60"
+    cor_botao_active = "#0b3b60"
+    cor_botao_texto = "#ffffff"
+    cor_botao_borda = "#0b3b60"
+
+    css = f"""
     <style>
-    html, body, [class*="css"] {
-        font-family: "Inter", "Segoe UI", Arial, sans-serif !important;
-    }
-
-    .stApp, .stApp * {
-        font-family: "Inter", "Segoe UI", Arial, sans-serif !important;
-    }
-
-    #MainMenu,
-    header,
-    footer,
-    [data-testid="stHeader"],
-    [data-testid="stToolbar"],
-    [data-testid="stDecoration"],
-    [data-testid="stStatusWidget"],
-    [data-testid="stDeployButton"] {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        height: 0 !important;
-        min-height: 0 !important;
-    }
-
-    html, body, .stApp, [data-testid="stAppViewContainer"], .main {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    [data-testid="stAppViewContainer"] > .main {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
-    }
-
-    .block-container {
-        padding-top: 0.35rem !important;
+    .block-container {{
+        padding-top: 1rem !important;
         padding-bottom: 1rem !important;
         max-width: 100% !important;
-    }
-
-    div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stToolbar"]) {
-        display: none !important;
-    }
+    }}
 
     .stAppViewBlockContainer,
     .main > div,
-    .main .block-container {
+    .main .block-container {{
         background: transparent !important;
-    }
+    }}
 
-    [data-testid="stSidebar"] {
+    [data-testid="stSidebar"] {{
         background: rgba(10, 18, 35, 0.92) !important;
         border-right: 1px solid rgba(255,255,255,0.08) !important;
-    }
+    }}
 
-    [data-testid="stSidebar"] * {
-        color: #ffffff !important;
-    }
-
-    section[data-testid="stSidebar"] .block-container {
+    section[data-testid="stSidebar"] .block-container {{
         padding-top: 0.8rem !important;
-    }
+    }}
 
+    /* inputs */
     div[data-testid="stTextInput"] input,
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
         background-color: rgba(255,255,255,0.92) !important;
         color: #111111 !important;
         border-radius: 12px !important;
         border: 1px solid rgba(15, 23, 42, 0.14) !important;
         box-shadow: none !important;
-    }
+    }}
 
-    div[data-testid="stTextInput"] label,
-    div[data-testid="stSelectbox"] label {
-        font-weight: 600 !important;
-        color: #0f172a !important;
-    }
-
-    div[data-testid="stTextInput"] input:focus {
+    div[data-testid="stTextInput"] input:focus {{
         border: 1px solid #0b3b60 !important;
         box-shadow: 0 0 0 0.14rem rgba(11, 59, 96, 0.18) !important;
-    }
+    }}
 
     button[title="Show password"],
-    button[title="Hide password"] {
-        color: #334155 !important;
-    }
+    button[title="Hide password"] {{
+        color: inherit !important;
+    }}
 
+    /* botões gerais */
     .stButton > button,
     div[data-testid="stButton"] > button,
     button[kind="primary"],
-    button[kind="secondary"],
-    div[data-testid="baseButton-secondary"],
-    div[data-testid="baseButton-primary"] {
+    button[kind="secondary"] {{
         width: 100%;
         min-height: 42px !important;
         background-color: #0b3b60 !important;
@@ -373,71 +331,111 @@ def aplicar_css_global():
         border-radius: 12px !important;
         box-shadow: none !important;
         font-weight: 700 !important;
-        transition: 0.15s ease-in-out !important;
-    }
+        transition: none !important;
+    }}
 
     .stButton > button:hover,
     div[data-testid="stButton"] > button:hover,
     button[kind="primary"]:hover,
-    button[kind="secondary"]:hover {
+    button[kind="secondary"]:hover {{
         background-color: #082c47 !important;
         color: #ffffff !important;
         border: 1px solid #082c47 !important;
-    }
+    }}
 
     .stButton > button:focus,
-    div[data-testid="stButton"] > button:focus {
+    .stButton > button:focus-visible,
+    div[data-testid="stButton"] > button:focus,
+    div[data-testid="stButton"] > button:focus-visible {{
         outline: none !important;
         box-shadow: 0 0 0 0.15rem rgba(11, 59, 96, 0.28) !important;
-    }
+    }}
+
+    .stButton > button:active,
+    div[data-testid="stButton"] > button:active {{
+        background-color: #082c47 !important;
+        color: #ffffff !important;
+        border: 1px solid #082c47 !important;
+        box-shadow: none !important;
+    }}
 
     .stButton > button:disabled,
-    div[data-testid="stButton"] > button:disabled {
+    div[data-testid="stButton"] > button:disabled {{
         background-color: #7b8a97 !important;
         border: 1px solid #7b8a97 !important;
         color: #ffffff !important;
         opacity: 1 !important;
-    }
+    }}
 
+    /* =====================================================
+       BOTÕES DA SIDEBAR
+       SOMENTE botões do st.sidebar.button
+       NÃO pega botão recolher nem outros controles nativos
+       ===================================================== */
     [data-testid="stSidebar"] .stButton > button,
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button {
-        background-color: #0b3b60 !important;
-        color: #ffffff !important;
-        border: 1px solid #0b3b60 !important;
-    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button {{
+        width: 100% !important;
+        min-height: 42px !important;
+        background: {cor_botao} !important;
+        background-color: {cor_botao} !important;
+        color: {cor_botao_texto} !important;
+        border: 1px solid {cor_botao_borda} !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+        font-weight: 700 !important;
+        transition: none !important;
+        transform: none !important;
+        filter: none !important;
+        background-image: none !important;
+    }}
 
     [data-testid="stSidebar"] .stButton > button:hover,
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
-        background-color: #082c47 !important;
-        color: #ffffff !important;
-        border: 1px solid #082c47 !important;
-    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {{
+        background: {cor_botao_hover} !important;
+        background-color: {cor_botao_hover} !important;
+        color: {cor_botao_texto} !important;
+        border: 1px solid {cor_botao_borda} !important;
+        box-shadow: none !important;
+        transform: none !important;
+        filter: none !important;
+        background-image: none !important;
+    }}
 
-    [data-testid="stNotification"] {
+    [data-testid="stSidebar"] .stButton > button:active,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:active {{
+        background: {cor_botao_active} !important;
+        background-color: {cor_botao_active} !important;
+        color: {cor_botao_texto} !important;
+        border: 1px solid {cor_botao_borda} !important;
+        box-shadow: none !important;
+        transform: none !important;
+        filter: none !important;
+        background-image: none !important;
+    }}
+
+    [data-testid="stSidebar"] .stButton > button:focus,
+    [data-testid="stSidebar"] .stButton > button:focus-visible,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:focus,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:focus-visible {{
+        background: {cor_botao} !important;
+        background-color: {cor_botao} !important;
+        color: {cor_botao_texto} !important;
+        border: 1px solid {cor_botao_borda} !important;
+        box-shadow: none !important;
+        outline: none !important;
+        transform: none !important;
+        filter: none !important;
+        background-image: none !important;
+    }}
+
+    [data-testid="stSidebar"] .stButton > button *,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button * {{
+        color: {cor_botao_texto} !important;
+    }}
+
+    [data-testid="stNotification"] {{
         border-radius: 10px !important;
-    }
-
-    /* BOTÃO DE REABRIR SIDEBAR */
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
-        z-index: 99999 !important;
-        background: rgba(10, 18, 35, 0.92) !important;
-        border: 1px solid rgba(255,255,255,0.10) !important;
-        border-radius: 12px !important;
-        padding: 2px !important;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.20) !important;
-    }
-
-    [data-testid="collapsedControl"] button,
-    [data-testid="collapsedControl"] svg {
-        color: #ffffff !important;
-        fill: #ffffff !important;
-    }
+    }}
     """
 
     if fundo_b64:
@@ -460,7 +458,8 @@ def aplicar_css_global():
         }}
 
         [data-testid="stAppViewContainer"],
-        [data-testid="stSidebar"] {{
+        [data-testid="stSidebar"],
+        [data-testid="stHeader"] {{
             position: relative;
             z-index: 1;
         }}
@@ -531,15 +530,6 @@ def aplicar_css_global():
         padding-top: 0.45rem !important;
         padding-bottom: 0.45rem !important;
         font-size: 0.97rem !important;
-    }
-
-    .st-emotion-cache-uf99v8,
-    .st-emotion-cache-18ni7ap,
-    .st-emotion-cache-z5fcl4,
-    .st-emotion-cache-h5rgaw {
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
     }
 
     @media (max-width: 900px) {
@@ -729,7 +719,7 @@ def tela_sidebar():
     if st.sidebar.button("Árvore", use_container_width=True):
         st.session_state.pagina = "arvore"
 
-    if st.sidebar.button("Cadastro", use_container_width=True):
+    if st.sidebar.button("Cadastro equipamentos", use_container_width=True):
         st.session_state.pagina = "cadastro"
 
     if st.sidebar.button("Peças", use_container_width=True):
