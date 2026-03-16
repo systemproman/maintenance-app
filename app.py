@@ -14,28 +14,29 @@ from database import get_supabase
 
 
 # =========================================================
-# CONFIG DA PÁGINA
-# =========================================================
-st.set_page_config(
-    page_title="Maintenance APP",
-    page_icon="🔧",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-
-# =========================================================
 # ARQUIVOS
 # =========================================================
 BASE_DIR = Path(__file__).parent
 LOGO_FILE = BASE_DIR / "logo_fsl.png"
 
+# tenta encontrar fundo em jpg/jpeg/png
 FUNDO_FILE = None
 for nome in ("fundo_fsl.jpg", "fundo_fsl.jpeg", "fundo_fsl.png"):
     candidato = BASE_DIR / nome
     if candidato.exists():
         FUNDO_FILE = candidato
         break
+
+
+# =========================================================
+# CONFIG DA PÁGINA
+# =========================================================
+st.set_page_config(
+    page_title="Maintenance APP",
+    page_icon=str(LOGO_FILE) if LOGO_FILE.exists() else "🔧",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 
 # =========================================================
@@ -311,6 +312,16 @@ def aplicar_css_global():
         max-width: 100% !important;
     }
 
+    div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stToolbar"]) {
+        display: none !important;
+    }
+
+    .stAppViewBlockContainer,
+    .main > div,
+    .main .block-container {
+        background: transparent !important;
+    }
+
     [data-testid="stSidebar"] {
         background: rgba(10, 18, 35, 0.92) !important;
         border-right: 1px solid rgba(255,255,255,0.08) !important;
@@ -344,8 +355,17 @@ def aplicar_css_global():
         box-shadow: 0 0 0 0.14rem rgba(11, 59, 96, 0.18) !important;
     }
 
+    button[title="Show password"],
+    button[title="Hide password"] {
+        color: #334155 !important;
+    }
+
     .stButton > button,
-    div[data-testid="stButton"] > button {
+    div[data-testid="stButton"] > button,
+    button[kind="primary"],
+    button[kind="secondary"],
+    div[data-testid="baseButton-secondary"],
+    div[data-testid="baseButton-primary"] {
         width: 100%;
         min-height: 42px !important;
         background-color: #0b3b60 !important;
@@ -358,10 +378,18 @@ def aplicar_css_global():
     }
 
     .stButton > button:hover,
-    div[data-testid="stButton"] > button:hover {
+    div[data-testid="stButton"] > button:hover,
+    button[kind="primary"]:hover,
+    button[kind="secondary"]:hover {
         background-color: #082c47 !important;
         color: #ffffff !important;
         border: 1px solid #082c47 !important;
+    }
+
+    .stButton > button:focus,
+    div[data-testid="stButton"] > button:focus {
+        outline: none !important;
+        box-shadow: 0 0 0 0.15rem rgba(11, 59, 96, 0.28) !important;
     }
 
     .stButton > button:disabled,
@@ -370,6 +398,20 @@ def aplicar_css_global():
         border: 1px solid #7b8a97 !important;
         color: #ffffff !important;
         opacity: 1 !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        background-color: #0b3b60 !important;
+        color: #ffffff !important;
+        border: 1px solid #0b3b60 !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button:hover,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+        background-color: #082c47 !important;
+        color: #ffffff !important;
+        border: 1px solid #082c47 !important;
     }
 
     [data-testid="stNotification"] {
@@ -451,6 +493,49 @@ def aplicar_css_global():
         margin-bottom: 0.45rem;
         max-width: 84px !important;
         filter: drop-shadow(0 4px 12px rgba(0,0,0,0.14));
+    }
+
+    div[data-testid="stForm"] {
+        margin-top: 0 !important;
+        border: none !important;
+        background: transparent !important;
+    }
+
+    div[data-testid="stTextInput"] {
+        margin-bottom: 0.40rem !important;
+    }
+
+    div[data-testid="stTextInput"] input {
+        min-height: 46px !important;
+        padding-top: 0.45rem !important;
+        padding-bottom: 0.45rem !important;
+        font-size: 0.97rem !important;
+    }
+
+    .st-emotion-cache-uf99v8,
+    .st-emotion-cache-18ni7ap,
+    .st-emotion-cache-z5fcl4,
+    .st-emotion-cache-h5rgaw {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    @media (max-width: 900px) {
+        .login-card {
+            max-width: 520px;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .login-title {
+            font-size: 2rem;
+        }
+
+        .login-card {
+            padding: 18px 16px 14px 16px;
+            border-radius: 18px;
+        }
     }
     </style>
     """
