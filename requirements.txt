@@ -1,5 +1,9 @@
 streamlit
 supabase
+postgrest
 pandas
 st-keyup
+python-dotenv
+pillow
 openpyxl
+requests
