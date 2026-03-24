@@ -80,14 +80,14 @@ def limpar_cache_usuarios():
 # =========================================================
 # CACHE DE USUÁRIOS
 # =========================================================
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _cache_list_users():
     supabase = get_supabase()
     resp = supabase.table("users").select("*").order("username").execute()
     return resp.data or []
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _cache_get_user(username: str):
     username = str(username or "").strip().lower()
     if not username:
@@ -105,7 +105,7 @@ def _cache_get_user(username: str):
     return resp.data[0] if resp.data else None
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _cache_has_any_user():
     supabase = get_supabase()
     resp = supabase.table("users").select("id").limit(1).execute()
@@ -249,17 +249,20 @@ repo = UserRepository()
 # =========================================================
 # SESSION STATE
 # =========================================================
-if "logado" not in st.session_state:
-    st.session_state.logado = False
+def inicializar_estado():
+    padrao = {
+        "logado": False,
+        "pagina": "",
+        "usuario_logado": None,
+        "perfil_logado": None,
+    }
 
-if "pagina" not in st.session_state:
-    st.session_state.pagina = ""
+    for chave, valor in padrao.items():
+        if chave not in st.session_state:
+            st.session_state[chave] = valor
 
-if "usuario_logado" not in st.session_state:
-    st.session_state.usuario_logado = None
 
-if "perfil_logado" not in st.session_state:
-    st.session_state.perfil_logado = None
+inicializar_estado()
 
 
 # =========================================================
@@ -269,23 +272,43 @@ def aplicar_css_global():
     fundo_b64 = image_to_base64(FUNDO_FILE)
     fundo_mime = mime_type_from_path(FUNDO_FILE)
 
-    cor_botao = "#0b3b60"
-    cor_botao_hover = "#0b3b60"
-    cor_botao_active = "#0b3b60"
-    cor_botao_texto = "#ffffff"
-    cor_botao_borda = "#0b3b60"
+    usa_fundo = bool(fundo_b64)
+
+    background_css = f"""
+        background:
+            linear-gradient(rgba(247, 250, 252, 0.78), rgba(247, 250, 252, 0.78)),
+            url("data:{fundo_mime};base64,{fundo_b64}") center center / cover no-repeat fixed;
+    """ if usa_fundo else """
+        background: linear-gradient(135deg, #eef3f9 0%, #dfe9f5 100%);
+    """
 
     css = f"""
     <style>
+    * {{
+        box-sizing: border-box !important;
+    }}
+
+    html, body, [data-testid="stAppViewContainer"], .stApp {{
+        {background_css}
+    }}
+
+    [data-testid="stHeader"] {{
+        background: transparent !important;
+    }}
+
     .block-container {{
         padding-top: 1rem !important;
         padding-bottom: 1rem !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
         max-width: 100% !important;
     }}
 
     .stAppViewBlockContainer,
     .main > div,
-    .main .block-container {{
+    .main .block-container,
+    section.main,
+    [data-testid="stAppViewContainer"] > .main {{
         background: transparent !important;
     }}
 
@@ -296,33 +319,85 @@ def aplicar_css_global():
 
     section[data-testid="stSidebar"] .block-container {{
         padding-top: 0.8rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }}
+
+    /* wrappers de input para evitar corte */
+    div[data-testid="stTextInput"],
+    div[data-testid="stTextArea"],
+    div[data-testid="stNumberInput"],
+    div[data-testid="stSelectbox"],
+    div[data-testid="stDateInput"],
+    div[data-testid="stTimeInput"] {{
+        padding: 4px 0 !important;
+    }}
+
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stTextArea"] > div,
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stSelectbox"] > div {{
+        overflow: visible !important;
     }}
 
     /* inputs */
     div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextArea"] textarea,
     div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
-        background-color: rgba(255,255,255,0.92) !important;
+        background-color: rgba(255,255,255,0.96) !important;
         color: #111111 !important;
         border-radius: 12px !important;
         border: 1px solid rgba(15, 23, 42, 0.14) !important;
         box-shadow: none !important;
+        min-height: 46px !important;
+        padding-top: 0.60rem !important;
+        padding-bottom: 0.60rem !important;
     }}
 
-    div[data-testid="stTextInput"] input:focus {{
+    div[data-testid="stTextArea"] textarea {{
+        min-height: 110px !important;
+    }}
+
+    /* campo senha com espaço para o olho */
+    div[data-testid="stTextInput"] input[type="password"],
+    div[data-testid="stTextInput"] input[type="text"] {{
+        padding-left: 0.9rem !important;
+        padding-right: 2.6rem !important;
+    }}
+
+    div[data-testid="stTextInput"] input:focus,
+    div[data-testid="stNumberInput"] input:focus,
+    div[data-testid="stTextArea"] textarea:focus {{
         border: 1px solid #0b3b60 !important;
         box-shadow: 0 0 0 0.14rem rgba(11, 59, 96, 0.18) !important;
     }}
 
     button[title="Show password"],
     button[title="Hide password"] {{
-        color: inherit !important;
+        color: #334155 !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        min-width: 34px !important;
+        padding: 0 !important;
+    }}
+
+    button[title="Show password"]:hover,
+    button[title="Hide password"]:hover {{
+        background: rgba(15, 23, 42, 0.06) !important;
+        border-radius: 10px !important;
     }}
 
     /* botões gerais */
     .stButton > button,
     div[data-testid="stButton"] > button,
     button[kind="primary"],
-    button[kind="secondary"] {{
+    button[kind="secondary"],
+    div[data-testid="stFormSubmitButton"] > button {{
         width: 100%;
         min-height: 42px !important;
         background-color: #0b3b60 !important;
@@ -337,7 +412,8 @@ def aplicar_css_global():
     .stButton > button:hover,
     div[data-testid="stButton"] > button:hover,
     button[kind="primary"]:hover,
-    button[kind="secondary"]:hover {{
+    button[kind="secondary"]:hover,
+    div[data-testid="stFormSubmitButton"] > button:hover {{
         background-color: #082c47 !important;
         color: #ffffff !important;
         border: 1px solid #082c47 !important;
@@ -346,13 +422,16 @@ def aplicar_css_global():
     .stButton > button:focus,
     .stButton > button:focus-visible,
     div[data-testid="stButton"] > button:focus,
-    div[data-testid="stButton"] > button:focus-visible {{
+    div[data-testid="stButton"] > button:focus-visible,
+    div[data-testid="stFormSubmitButton"] > button:focus,
+    div[data-testid="stFormSubmitButton"] > button:focus-visible {{
         outline: none !important;
         box-shadow: 0 0 0 0.15rem rgba(11, 59, 96, 0.28) !important;
     }}
 
     .stButton > button:active,
-    div[data-testid="stButton"] > button:active {{
+    div[data-testid="stButton"] > button:active,
+    div[data-testid="stFormSubmitButton"] > button:active {{
         background-color: #082c47 !important;
         color: #ffffff !important;
         border: 1px solid #082c47 !important;
@@ -360,26 +439,23 @@ def aplicar_css_global():
     }}
 
     .stButton > button:disabled,
-    div[data-testid="stButton"] > button:disabled {{
+    div[data-testid="stButton"] > button:disabled,
+    div[data-testid="stFormSubmitButton"] > button:disabled {{
         background-color: #7b8a97 !important;
         border: 1px solid #7b8a97 !important;
         color: #ffffff !important;
         opacity: 1 !important;
     }}
 
-    /* =====================================================
-       BOTÕES DA SIDEBAR
-       SOMENTE botões do st.sidebar.button
-       NÃO pega botão recolher nem outros controles nativos
-       ===================================================== */
+    /* botões da sidebar */
     [data-testid="stSidebar"] .stButton > button,
     [data-testid="stSidebar"] div[data-testid="stButton"] > button {{
         width: 100% !important;
         min-height: 42px !important;
-        background: {cor_botao} !important;
-        background-color: {cor_botao} !important;
-        color: {cor_botao_texto} !important;
-        border: 1px solid {cor_botao_borda} !important;
+        background: #0b3b60 !important;
+        background-color: #0b3b60 !important;
+        color: #ffffff !important;
+        border: 1px solid #0b3b60 !important;
         border-radius: 12px !important;
         box-shadow: none !important;
         font-weight: 700 !important;
@@ -391,10 +467,10 @@ def aplicar_css_global():
 
     [data-testid="stSidebar"] .stButton > button:hover,
     [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {{
-        background: {cor_botao_hover} !important;
-        background-color: {cor_botao_hover} !important;
-        color: {cor_botao_texto} !important;
-        border: 1px solid {cor_botao_borda} !important;
+        background: #082c47 !important;
+        background-color: #082c47 !important;
+        color: #ffffff !important;
+        border: 1px solid #082c47 !important;
         box-shadow: none !important;
         transform: none !important;
         filter: none !important;
@@ -403,10 +479,10 @@ def aplicar_css_global():
 
     [data-testid="stSidebar"] .stButton > button:active,
     [data-testid="stSidebar"] div[data-testid="stButton"] > button:active {{
-        background: {cor_botao_active} !important;
-        background-color: {cor_botao_active} !important;
-        color: {cor_botao_texto} !important;
-        border: 1px solid {cor_botao_borda} !important;
+        background: #082c47 !important;
+        background-color: #082c47 !important;
+        color: #ffffff !important;
+        border: 1px solid #082c47 !important;
         box-shadow: none !important;
         transform: none !important;
         filter: none !important;
@@ -417,137 +493,93 @@ def aplicar_css_global():
     [data-testid="stSidebar"] .stButton > button:focus-visible,
     [data-testid="stSidebar"] div[data-testid="stButton"] > button:focus,
     [data-testid="stSidebar"] div[data-testid="stButton"] > button:focus-visible {{
-        background: {cor_botao} !important;
-        background-color: {cor_botao} !important;
-        color: {cor_botao_texto} !important;
-        border: 1px solid {cor_botao_borda} !important;
-        box-shadow: none !important;
         outline: none !important;
-        transform: none !important;
-        filter: none !important;
-        background-image: none !important;
+        box-shadow: 0 0 0 0.15rem rgba(255,255,255,0.18) !important;
     }}
 
-    [data-testid="stSidebar"] .stButton > button *,
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button * {{
-        color: {cor_botao_texto} !important;
+    [data-testid="stSidebar"] .stButton > button:disabled,
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled {{
+        background: #6b7280 !important;
+        background-color: #6b7280 !important;
+        color: #ffffff !important;
+        border: 1px solid #6b7280 !important;
+        opacity: 1 !important;
     }}
 
-    [data-testid="stNotification"] {{
-        border-radius: 10px !important;
+    /* login */
+    .login-page-space {{
+        height: 3vh;
     }}
-    """
 
-    if fundo_b64:
-        css += f"""
-        .stApp {{
-            background-image: url("data:{fundo_mime};base64,{fundo_b64}") !important;
-            background-repeat: no-repeat !important;
-            background-position: center center !important;
-            background-attachment: fixed !important;
-            background-size: cover !important;
-        }}
-
-        .stApp::before {{
-            content: "";
-            position: fixed;
-            inset: 0;
-            background: rgba(120, 170, 225, 0.20);
-            pointer-events: none;
-            z-index: 0;
-        }}
-
-        [data-testid="stAppViewContainer"],
-        [data-testid="stSidebar"],
-        [data-testid="stHeader"] {{
-            position: relative;
-            z-index: 1;
-        }}
-        """
-    else:
-        css += """
-        .stApp {
-            background: linear-gradient(135deg, #dbeafe, #93c5fd) !important;
-        }
-        """
-
-    css += """
-    .login-page-space {
-        height: 4vh;
-        min-height: 18px;
-    }
-
-    .login-card {
+    .login-card {{
         width: 100%;
         max-width: 470px;
         margin: 0 auto;
         padding: 22px 22px 18px 22px;
         border-radius: 22px;
-        background: rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.20);
         border: 1px solid rgba(255, 255, 255, 0.24);
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
         backdrop-filter: blur(10px) saturate(145%);
         -webkit-backdrop-filter: blur(10px) saturate(145%);
-    }
+    }}
 
-    .login-title {
+    .login-title {{
         text-align: center;
         font-size: 2.35rem;
         font-weight: 800;
         color: #081a44;
         margin: 0.15rem 0 0.05rem 0;
         line-height: 1.1;
-    }
+    }}
 
-    .login-subtitle {
+    .login-subtitle {{
         text-align: center;
         font-size: 1rem;
         color: #314155;
         margin-bottom: 1rem;
-    }
+    }}
 
-    .logo-login img {
+    .logo-login img {{
         display: block;
         margin-left: auto;
         margin-right: auto;
         margin-bottom: 0.45rem;
         max-width: 84px !important;
         filter: drop-shadow(0 4px 12px rgba(0,0,0,0.14));
-    }
+    }}
 
-    div[data-testid="stForm"] {
+    div[data-testid="stForm"] {{
         margin-top: 0 !important;
         border: none !important;
         background: transparent !important;
-    }
+    }}
 
-    div[data-testid="stTextInput"] {
+    div[data-testid="stTextInput"] {{
         margin-bottom: 0.40rem !important;
-    }
+    }}
 
-    div[data-testid="stTextInput"] input {
-        min-height: 46px !important;
-        padding-top: 0.45rem !important;
-        padding-bottom: 0.45rem !important;
-        font-size: 0.97rem !important;
-    }
-
-    @media (max-width: 900px) {
-        .login-card {
+    @media (max-width: 900px) {{
+        .login-card {{
             max-width: 520px;
-        }
-    }
+        }}
+    }}
 
-    @media (max-width: 640px) {
-        .login-title {
+    @media (max-width: 640px) {{
+        .login-title {{
             font-size: 2rem;
-        }
+        }}
 
-        .login-card {
+        .login-card {{
             padding: 18px 16px 14px 16px;
             border-radius: 18px;
-        }
-    }
+        }}
+
+        .block-container {{
+            padding-left: 0.9rem !important;
+            padding-right: 0.9rem !important;
+        }}
+    }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -742,16 +774,18 @@ def tela_sidebar():
 def tela_principal():
     tela_sidebar()
 
-    if st.session_state.pagina == "arvore":
+    pagina = st.session_state.pagina or "arvore"
+
+    if pagina == "arvore":
         arvore.mostrar_arvore()
 
-    elif st.session_state.pagina == "cadastro":
+    elif pagina == "cadastro":
         cadastro_ativos.mostrar_cadastro()
 
-    elif st.session_state.pagina == "peca":
+    elif pagina == "peca":
         cadastro_pecas.menu_peca()
 
-    elif st.session_state.pagina == "usuarios":
+    elif pagina == "usuarios":
         tela_gerenciar_usuarios()
 
     else:
