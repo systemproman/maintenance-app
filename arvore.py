@@ -14,7 +14,6 @@ from database import SupabaseAssetRepository, SupabasePhotoStorage
 # ============================================================
 # CONFIGURAÇÃO BÁSICA
 # ============================================================
-
 asset_repo = SupabaseAssetRepository()
 photo_storage = SupabasePhotoStorage()
 
@@ -22,7 +21,6 @@ photo_storage = SupabasePhotoStorage()
 # ============================================================
 # FUNÇÕES UTILITÁRIAS
 # ============================================================
-
 def normalizar_texto(valor):
     return str(valor or "").strip().upper()
 
@@ -67,41 +65,6 @@ def nome_item_anexo(item, nome_padrao="ARQUIVO"):
         or item.get("arquivo")
         or nome_padrao
     )
-
-
-@st.cache_data(ttl=120, show_spinner=False)
-def ler_bytes_storage_cache(storage_key):
-    if not storage_key:
-        return None
-    try:
-        return photo_storage.get_bytes({"storage_key": storage_key})
-    except Exception:
-        return None
-
-
-def ler_bytes_anexo(item):
-    if not item:
-        return None
-
-    conteudo = item.get("conteudo")
-
-    if isinstance(conteudo, bytes):
-        return conteudo
-
-    if isinstance(conteudo, str) and conteudo:
-        try:
-            return base64.b64decode(conteudo)
-        except Exception:
-            pass
-
-    storage_key = item.get("storage_key", "")
-    if storage_key:
-        return ler_bytes_storage_cache(storage_key)
-
-    try:
-        return photo_storage.get_bytes(item)
-    except Exception:
-        return None
 
 
 def destacar_termo_html(texto, termo):
@@ -150,19 +113,36 @@ def obter_pai_relacional(ativo):
     return ""
 
 
-# ============================================================
-# DADOS DOS ATIVOS
-# ============================================================
+def chave_ativo(ativo):
+    tag = normalizar_texto(ativo.get("tag", ""))
+    return tag or f"SEM_TAG_{id(ativo)}"
 
-@st.cache_data(ttl=10, show_spinner=False)
+
+# ============================================================
+# CACHE DE DADOS
+# ============================================================
+@st.cache_data(ttl=300, show_spinner=False)
 def carregar_ativos_cache():
     return asset_repo.list_assets()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def ler_bytes_storage_cache(storage_key):
+    if not storage_key:
+        return None
+    try:
+        return photo_storage.get_bytes({"storage_key": storage_key})
+    except Exception:
+        return None
 
 
 def carregar_ativos():
     return carregar_ativos_cache()
 
 
+# ============================================================
+# DADOS DOS ATIVOS
+# ============================================================
 def montar_mapa_filhos(lista):
     mapa = {}
 
@@ -195,10 +175,17 @@ def montar_raizes(lista):
     return raizes
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_estrutura_cache():
+    lista = asset_repo.list_assets()
+    mapa_filhos = montar_mapa_filhos(lista)
+    raizes = montar_raizes(lista)
+    return lista, mapa_filhos, raizes
+
+
 # ============================================================
 # PEÇAS
 # ============================================================
-
 def montar_texto_peca(peca):
     codigo = normalizar_texto(peca.get("codigo", ""))
     descricao = normalizar_texto(peca.get("descricao", ""))
@@ -259,7 +246,6 @@ def gerar_pecas_html(ativo, termo_busca, forcar_exibicao=False):
 # ============================================================
 # BUSCA
 # ============================================================
-
 def ativo_corresponde_busca(ativo, termo):
     if not termo:
         return True
@@ -281,16 +267,15 @@ def ativo_corresponde_busca(ativo, termo):
         return True
 
     pecas = ativo.get("pecas", []) or []
-    if pecas:
-        for p in pecas:
-            base_peca = " ".join([
-                str(p.get("funcao", "")),
-                str(p.get("codigo", "")),
-                str(p.get("descricao", "")),
-                str(p.get("quantidade", "")),
-            ]).lower()
-            if termo in base_peca:
-                return True
+    for p in pecas:
+        base_peca = " ".join([
+            str(p.get("funcao", "")),
+            str(p.get("codigo", "")),
+            str(p.get("descricao", "")),
+            str(p.get("quantidade", "")),
+        ]).lower()
+        if termo in base_peca:
+            return True
 
     anexos = (
         (ativo.get("fotos", []) or [])
@@ -303,60 +288,43 @@ def ativo_corresponde_busca(ativo, termo):
     return False
 
 
-def arvore_tem_match(ativo, mapa_filhos, termo, visitados=None):
-    if visitados is None:
-        visitados = set()
+def montar_indices_busca(lista_ativos, mapa_filhos, termo_busca):
+    if not termo_busca:
+        return None, None
 
-    tag = normalizar_texto(ativo.get("tag", ""))
-    chave_visita = tag or f"SEM_TAG_{id(ativo)}"
+    termo_busca = termo_busca.strip()
+    if not termo_busca:
+        return None, None
 
-    if chave_visita in visitados:
-        return False
+    match_map = {}
+    subtree_map = {}
 
-    visitados.add(chave_visita)
+    def calcular_subarvore(ativo):
+        chave = chave_ativo(ativo)
+        if chave in subtree_map:
+            return subtree_map[chave]
 
-    if ativo_corresponde_busca(ativo, termo):
-        return True
+        match = ativo_corresponde_busca(ativo, termo_busca)
+        filhos = mapa_filhos.get(normalizar_texto(ativo.get("tag", "")), [])
 
-    filhos = mapa_filhos.get(tag, [])
+        tem_match_desc = False
+        for filho in filhos:
+            if calcular_subarvore(filho):
+                tem_match_desc = True
 
-    for filho in filhos:
-        if arvore_tem_match(filho, mapa_filhos, termo, visitados.copy()):
-            return True
+        subtree_map[chave] = match or tem_match_desc
+        match_map[chave] = match
+        return subtree_map[chave]
 
-    return False
+    for ativo in lista_ativos:
+        calcular_subarvore(ativo)
 
-
-def descendente_tem_match(ativo, mapa_filhos, termo, visitados=None):
-    if not termo:
-        return False
-
-    if visitados is None:
-        visitados = set()
-
-    tag = normalizar_texto(ativo.get("tag", ""))
-    chave_visita = tag or f"SEM_TAG_{id(ativo)}"
-
-    if chave_visita in visitados:
-        return False
-
-    visitados.add(chave_visita)
-
-    filhos = mapa_filhos.get(tag, [])
-
-    for filho in filhos:
-        if ativo_corresponde_busca(filho, termo):
-            return True
-        if descendente_tem_match(filho, mapa_filhos, termo, visitados.copy()):
-            return True
-
-    return False
+    return match_map, subtree_map
 
 
 # ============================================================
 # VISUAL DO TIPO DE ATIVO
 # ============================================================
-
 def classe_tipo(tipo):
     tipo = normalizar_texto(tipo)
 
@@ -373,7 +341,6 @@ def classe_tipo(tipo):
 # ============================================================
 # ANEXOS (FOTOS E PDFs)
 # ============================================================
-
 def coletar_itens_anexos(ativo):
     itens = []
 
@@ -392,7 +359,32 @@ def coletar_itens_anexos(ativo):
     return itens
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+def ler_bytes_anexo(item):
+    if not item:
+        return None
+
+    conteudo = item.get("conteudo")
+
+    if isinstance(conteudo, bytes):
+        return conteudo
+
+    if isinstance(conteudo, str) and conteudo:
+        try:
+            return base64.b64decode(conteudo)
+        except Exception:
+            pass
+
+    storage_key = item.get("storage_key", "")
+    if storage_key:
+        return ler_bytes_storage_cache(storage_key)
+
+    try:
+        return photo_storage.get_bytes(item)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def montar_anexos_para_painel_cache(ativo_json):
     ativo = json.loads(ativo_json)
 
@@ -429,8 +421,7 @@ def montar_anexos_para_painel(ativo):
 # ============================================================
 # DADOS DO PAINEL DIREITO
 # ============================================================
-
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def montar_info_painel_cache(ativo_json):
     ativo = json.loads(ativo_json)
     fotos, pdfs = montar_anexos_para_painel(ativo)
@@ -467,12 +458,13 @@ def montar_info_painel(ativo):
 # ============================================================
 # HTML DA ÁRVORE
 # ============================================================
-
 def gerar_no_html(
     ativo,
     mapa_filhos,
     termo_busca,
     contador,
+    match_map=None,
+    subtree_map=None,
     visitados=None,
     forcar_subarvore=False,
 ):
@@ -483,16 +475,27 @@ def gerar_no_html(
     descricao = normalizar_texto(ativo.get("descricao", ""))
     tipo = normalizar_texto(ativo.get("tipo", ""))
 
-    chave_visita = tag or f"SEM_TAG_{id(ativo)}"
-    if chave_visita in visitados:
+    chave = chave_ativo(ativo)
+    if chave in visitados:
         return "", contador
 
-    visitados.add(chave_visita)
+    visitados.add(chave)
 
-    match_no_atual = ativo_corresponde_busca(ativo, termo_busca) if termo_busca else True
+    match_no_atual = (
+        match_map.get(chave, True)
+        if (match_map is not None and termo_busca)
+        else (ativo_corresponde_busca(ativo, termo_busca) if termo_busca else True)
+    )
+
+    subarvore_tem_match = (
+        subtree_map.get(chave, True)
+        if (subtree_map is not None and termo_busca)
+        else True
+    )
+
     subarvore_forcada = forcar_subarvore or (bool(termo_busca) and match_no_atual)
 
-    if termo_busca and not subarvore_forcada and not arvore_tem_match(ativo, mapa_filhos, termo_busca):
+    if termo_busca and not subarvore_forcada and not subarvore_tem_match:
         return "", contador
 
     filhos = mapa_filhos.get(tag, [])
@@ -500,7 +503,7 @@ def gerar_no_html(
     if termo_busca and not subarvore_forcada:
         filhos_visiveis = [
             filho for filho in filhos
-            if arvore_tem_match(filho, mapa_filhos, termo_busca)
+            if subtree_map.get(chave_ativo(filho), False)
         ]
     else:
         filhos_visiveis = filhos
@@ -522,7 +525,7 @@ def gerar_no_html(
     if termo_busca:
         if subarvore_forcada:
             auto_expandir = True
-        elif possui_filhos_reais and descendente_tem_match(ativo, mapa_filhos, termo_busca):
+        elif any(subtree_map.get(chave_ativo(f), False) for f in filhos_visiveis):
             auto_expandir = True
         elif possui_pecas_visiveis:
             auto_expandir = True
@@ -565,8 +568,10 @@ def gerar_no_html(
                 mapa_filhos,
                 termo_busca,
                 contador,
-                visitados.copy(),
-                subarvore_forcada,
+                match_map=match_map,
+                subtree_map=subtree_map,
+                visitados=visitados.copy(),
+                forcar_subarvore=subarvore_forcada,
             )
             partes.append(html_filho)
 
@@ -580,14 +585,18 @@ def gerar_no_html(
     return "".join(partes), contador
 
 
-def montar_html_arvore(lista_ativos, termo_busca):
+@st.cache_data(ttl=120, show_spinner=False)
+def montar_html_arvore_cache(lista_json, termo_busca):
+    lista_ativos = json.loads(lista_json)
+
     mapa_filhos = montar_mapa_filhos(lista_ativos)
     raizes = montar_raizes(lista_ativos)
+    match_map, subtree_map = montar_indices_busca(lista_ativos, mapa_filhos, termo_busca)
 
     if termo_busca:
         raizes_visiveis = [
             raiz for raiz in raizes
-            if arvore_tem_match(raiz, mapa_filhos, termo_busca)
+            if subtree_map.get(chave_ativo(raiz), False)
         ]
     else:
         raizes_visiveis = raizes
@@ -603,20 +612,25 @@ def montar_html_arvore(lista_ativos, termo_busca):
                 mapa_filhos,
                 termo_busca,
                 contador,
+                match_map=match_map,
+                subtree_map=subtree_map,
             )
             partes.append(html_raiz)
     else:
         partes.append("<div class='sem-resultado'>NENHUM ITEM ENCONTRADO.</div>")
 
     partes.append("</ul>")
-
     return "".join(partes)
 
 
-# ============================================================
-# TELA PRINCIPAL
-# ============================================================
+def montar_html_arvore(lista_ativos, termo_busca):
+    lista_json = json.dumps(lista_ativos, ensure_ascii=False, sort_keys=True)
+    return montar_html_arvore_cache(lista_json, termo_busca)
 
+
+# ============================================================
+# CSS / TELA PRINCIPAL
+# ============================================================
 def mostrar_arvore():
     st.markdown(
         """
@@ -654,6 +668,11 @@ def mostrar_arvore():
             color: #000000 !important;
         }
 
+        div[data-testid="stTextInput"] > div,
+        div[data-testid="stTextInput"] > div > div {
+            overflow: visible !important;
+        }
+
         div[data-testid="stTextInput"] > div > div > input {
             border: 2px solid #c97a00 !important;
             border-radius: 12px !important;
@@ -661,6 +680,11 @@ def mostrar_arvore():
             color: #000000 !important;
             box-shadow: 0 0 0 2px rgba(201, 122, 0, 0.10) !important;
             font-weight: 700 !important;
+            min-height: 46px !important;
+            padding-top: 0.55rem !important;
+            padding-bottom: 0.55rem !important;
+            padding-left: 0.9rem !important;
+            padding-right: 0.9rem !important;
         }
 
         div[data-testid="stTextInput"] > div > div > input:focus {
@@ -701,7 +725,7 @@ def mostrar_arvore():
         key="pesquisa_arvore"
     ).strip()
 
-    lista = carregar_ativos()
+    lista, _, _ = carregar_estrutura_cache()
 
     if not lista:
         st.info("NENHUM ATIVO CADASTRADO AINDA.")
@@ -734,386 +758,262 @@ def mostrar_arvore():
                 color: #000000;
                 padding: 0 0.18rem;
                 border-radius: 4px;
-                box-shadow: inset 0 -1px 0 rgba(0,0,0,0.10);
+                box-shadow: inset 0 -1px 0 rgba(0,0,0,0.12);
             }}
 
             .app-shell {{
                 display: grid;
-                grid-template-columns: minmax(320px, 1fr) 10px minmax(380px, 0.95fr);
-                min-height: 840px;
-                border: 1px solid rgba(127, 127, 127, 0.16);
-                border-radius: 18px;
+                grid-template-columns: minmax(320px, 560px) 10px 1fr;
+                width: 100%;
+                min-height: 860px;
+                border: 1px solid rgba(127,127,127,0.14);
+                border-radius: 16px;
                 overflow: hidden;
                 background: #ffffff;
             }}
 
             .pane {{
                 min-width: 0;
-                min-height: 840px;
+                min-height: 860px;
                 background: #ffffff;
             }}
 
             .pane-left {{
-                padding: 0.9rem;
+                padding: 1rem;
                 overflow: auto;
                 background: #ffffff;
             }}
 
             .pane-right {{
-                padding: 0.9rem;
+                padding: 1rem;
                 overflow: auto;
-                border-left: 1px solid rgba(127, 127, 127, 0.14);
                 background: #ffffff;
+                border-left: 1px solid rgba(127, 127, 127, 0.14);
             }}
 
             .resizer {{
+                background: linear-gradient(180deg, #efefef 0%, #e0e0e0 100%);
                 cursor: col-resize;
-                background:
-                    linear-gradient(
-                        to right,
-                        rgba(127,127,127,0.08) 0%,
-                        rgba(127,127,127,0.18) 50%,
-                        rgba(127,127,127,0.08) 100%
-                    );
-                position: relative;
-            }}
-
-            .resizer::after {{
-                content: "";
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                width: 4px;
-                height: 58px;
-                transform: translate(-50%, -50%);
-                border-radius: 999px;
-                background: rgba(127,127,127,0.24);
+                border-left: 1px solid rgba(0,0,0,0.06);
+                border-right: 1px solid rgba(0,0,0,0.06);
             }}
 
             .tree-root,
-            .tree-root ul {{
+            .children-list {{
                 list-style: none;
                 margin: 0;
-                padding: 0;
+                padding-left: 1rem;
             }}
 
-            .tree-root ul {{
-                position: relative;
-                margin-left: 1.35rem;
-                padding-left: 0.95rem;
-            }}
-
-            .tree-root ul::before {{
-                content: "";
-                position: absolute;
-                left: 0.35rem;
-                top: 0;
-                bottom: 1.05rem;
-                border-left: 1px solid rgba(127, 127, 127, 0.32);
+            .tree-root {{
+                padding-left: 0;
             }}
 
             .tree-item {{
                 position: relative;
-                margin: 0.28rem 0;
-            }}
-
-            .tree-item::before {{
-                content: "";
-                position: absolute;
-                left: -0.98rem;
-                top: 1.08rem;
-                width: 0.9rem;
-                border-top: 1px solid rgba(127, 127, 127, 0.32);
-            }}
-
-            .tree-item-peca::before {{
-                border-top: 1px dashed rgba(127, 127, 127, 0.42);
+                margin: 0;
+                padding: 0.10rem 0;
             }}
 
             .tree-row {{
                 display: flex;
                 align-items: flex-start;
-                gap: 0.45rem;
-                min-height: 2rem;
+                gap: 0.42rem;
+                width: 100%;
             }}
 
             .toggle-btn,
             .toggle-placeholder {{
-                width: 1.4rem;
-                min-width: 1.4rem;
-                height: 1.4rem;
+                width: 22px;
+                min-width: 22px;
+                height: 22px;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                border-radius: 6px;
-                margin-top: 0.25rem;
-                flex: 0 0 auto;
+                margin-top: 0.12rem;
             }}
 
             .toggle-btn {{
-                border: 1px solid rgba(127, 127, 127, 0.30);
-                background: rgba(127, 127, 127, 0.08);
-                color: inherit;
+                border: 1px solid rgba(0,0,0,0.10);
+                border-radius: 6px;
+                background: #f8f8f8;
                 cursor: pointer;
-                font-weight: 700;
+                font-weight: 800;
                 line-height: 1;
+                color: #333333;
             }}
 
             .toggle-btn:hover {{
-                background: rgba(127, 127, 127, 0.16);
+                background: #efefef;
             }}
 
             .toggle-placeholder {{
-                opacity: 0;
-            }}
-
-            .children-list {{
-                margin-top: 0.18rem;
-            }}
-
-            .pecas-subarvore {{
-                margin-top: 0.15rem;
+                visibility: hidden;
             }}
 
             .node-label {{
-                border: 1px solid transparent;
-                color: #000000;
-                cursor: pointer;
+                border: none;
+                background: transparent;
                 text-align: left;
-                padding: 0.46rem 0.78rem;
-                border-radius: 12px;
-                font-family: Consolas, "Courier New", monospace;
-                font-size: 18px;
-                line-height: 1.4;
-                width: 100%;
-                max-width: 100%;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-                white-space: normal;
-                transition: 0.16s ease;
-                font-weight: 700;
-            }}
-
-            .node-label:hover {{
-                transform: translateY(-1px);
-                box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-            }}
-
-            .node-label.selected {{
-                outline: 2px solid rgba(70, 120, 255, 0.30);
-                box-shadow: 0 8px 20px rgba(0,0,0,0.10);
-            }}
-
-            .node-peca {{
-                background: #fff7e6;
-                border: 1px dashed rgba(201, 122, 0, 0.45);
-                font-size: 15px;
-                font-weight: 700;
-                cursor: default;
-            }}
-
-            .node-peca:hover {{
-                transform: none;
-                box-shadow: none;
-            }}
-
-            .tipo-local {{
-                background: #FFD700;
-                border-color: rgba(70, 120, 255, 0.28);
-            }}
-
-            .tipo-equipamento {{
-                background: #FFA500;
-                border-color: rgba(255, 180, 0, 0.30);
-            }}
-
-            .tipo-componente {{
-                background: #FF8C00;
-                border-color: rgba(30, 180, 110, 0.28);
-            }}
-
-            .tipo-default {{
-                background: rgba(127, 127, 127, 0.08);
-                border-color: rgba(127, 127, 127, 0.20);
-            }}
-
-            .panel-card {{
-                border: 1px solid rgba(127, 127, 127, 0.16);
-                background: #ffffff;
-                border-radius: 16px;
-                padding: 1rem;
-            }}
-
-            .panel-empty {{
-                min-height: 320px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                text-align: center;
-                opacity: 0.72;
-                font-weight: 700;
-                letter-spacing: 0.3px;
-                color: #000000;
-            }}
-
-            .asset-title {{
-                font-family: Consolas, "Courier New", monospace;
-                font-size: 1.35rem;
-                font-weight: 700;
-                line-height: 1.45;
-                margin-bottom: 1rem;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-                white-space: normal;
-                color: #000000;
-            }}
-
-            .section-title {{
-                font-size: 0.9rem;
-                font-weight: 800;
-                letter-spacing: 0.3px;
-                margin: 1rem 0 0.65rem 0;
-                color: #000000;
-                display: flex;
-                align-items: center;
-                gap: 0.45rem;
-            }}
-
-            .info-grid {{
-                display: grid;
-                gap: 0.42rem;
-            }}
-
-            .info-line {{
-                overflow-wrap: anywhere;
-                word-break: break-word;
-                white-space: normal;
-                line-height: 1.45;
-                color: #000000;
-            }}
-
-            .info-line b {{
-                margin-right: 0.28rem;
-            }}
-
-            .pecas-lista {{
+                padding: 0.20rem 0.15rem;
                 margin: 0;
-                padding-left: 1.1rem;
-                color: #000000;
-            }}
-
-            .pecas-lista li {{
-                margin-bottom: 0.3rem;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-                white-space: normal;
-                line-height: 1.45;
-                color: #000000;
-            }}
-
-            .sem-resultado {{
-                padding: 0.95rem 0.35rem;
-                opacity: 0.74;
+                cursor: pointer;
+                font-size: 0.94rem;
+                line-height: 1.35;
                 font-weight: 700;
                 color: #000000;
-            }}
-
-            .anexos-bloco {{
-                margin-top: 1rem;
-                border: 1px solid rgba(127,127,127,0.16);
-                border-radius: 14px;
-                padding: 0.85rem;
-                background: rgba(127,127,127,0.03);
-            }}
-
-            .fotos-grid {{
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.7rem;
-            }}
-
-            .foto-card {{
-                border: 1px solid rgba(127,127,127,0.15);
-                border-radius: 12px;
-                background: #ffffff;
-                padding: 0.35rem;
-                cursor: pointer;
-                width: 120px;
-            }}
-
-            .foto-card:hover {{
-                box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-                transform: translateY(-1px);
-            }}
-
-            .foto-card img {{
                 width: 100%;
-                height: 100px;
-                object-fit: cover;
-                display: block;
                 border-radius: 8px;
             }}
 
-            .foto-nome {{
-                margin-top: 0.35rem;
-                font-size: 11px;
+            .node-label:hover {{
+                background: rgba(201, 122, 0, 0.08);
+            }}
+
+            .node-label.selecionado {{
+                background: rgba(201, 122, 0, 0.14);
+                outline: 1px solid rgba(201, 122, 0, 0.30);
+            }}
+
+            .node-peca {{
+                font-size: 0.88rem;
                 font-weight: 700;
-                text-align: center;
+                color: #2f2f2f;
+                padding: 0.18rem 0.15rem;
+            }}
+
+            .tipo-local {{
+                color: #7a3e00;
+            }}
+
+            .tipo-equipamento {{
+                color: #9a5a00;
+            }}
+
+            .tipo-componente {{
+                color: #bb6b00;
+            }}
+
+            .tipo-default {{
+                color: #222222;
+            }}
+
+            .panel-card {{
+                width: 100%;
+                border: 1px solid rgba(127,127,127,0.14);
+                border-radius: 16px;
+                background: #ffffff;
+                overflow: hidden;
+            }}
+
+            .panel-empty {{
+                padding: 1.2rem;
+                color: #5b5b5b;
+                font-weight: 700;
+            }}
+
+            .panel-header {{
+                padding: 0.95rem 1rem;
+                border-bottom: 1px solid rgba(127,127,127,0.14);
+                background: #fff8ef;
+            }}
+
+            .panel-title {{
+                font-size: 1.1rem;
+                font-weight: 800;
+                color: #000000;
+                overflow-wrap: anywhere;
+            }}
+
+            .panel-subtitle {{
+                margin-top: 0.25rem;
+                color: #5e4b27;
+                font-weight: 700;
+            }}
+
+            .panel-body {{
+                padding: 1rem;
+            }}
+
+            .panel-grid {{
+                display: grid;
+                grid-template-columns: repeat(2, minmax(180px, 1fr));
+                gap: 0.85rem;
+                margin-bottom: 1rem;
+            }}
+
+            .info-box {{
+                border: 1px solid rgba(127,127,127,0.14);
+                border-radius: 12px;
+                padding: 0.75rem 0.85rem;
+                background: #ffffff;
+            }}
+
+            .info-label {{
+                font-size: 0.78rem;
+                font-weight: 800;
+                color: #7a5a20;
+                margin-bottom: 0.2rem;
+            }}
+
+            .info-value {{
+                font-size: 0.95rem;
+                font-weight: 700;
+                color: #000000;
                 overflow-wrap: anywhere;
                 word-break: break-word;
-                white-space: normal;
             }}
 
-            .pdf-lista {{
-                display: grid;
-                gap: 0.55rem;
+            .secao-titulo {{
+                margin: 1rem 0 0.55rem 0;
+                font-size: 0.96rem;
+                font-weight: 800;
+                color: #000000;
             }}
 
-            .pdf-card {{
-                border: 1px solid rgba(127,127,127,0.15);
+            .peca-card,
+            .arquivo-card {{
+                border: 1px solid rgba(127,127,127,0.14);
                 border-radius: 12px;
+                padding: 0.7rem 0.8rem;
+                margin-bottom: 0.55rem;
+                background: #fffdf9;
+            }}
+
+            .arquivo-actions {{
+                display: flex;
+                gap: 0.5rem;
+                flex-wrap: wrap;
+                margin-top: 0.55rem;
+            }}
+
+            .arquivo-btn {{
+                border: 1px solid rgba(0,0,0,0.10);
+                border-radius: 10px;
                 background: #ffffff;
-                padding: 0.75rem;
+                padding: 0.45rem 0.7rem;
+                font-weight: 800;
                 cursor: pointer;
             }}
 
-            .pdf-card:hover {{
-                box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-                transform: translateY(-1px);
+            .arquivo-btn:hover {{
+                background: #f3f3f3;
             }}
 
-            .pdf-topo {{
-                display: flex;
-                align-items: center;
-                gap: 0.6rem;
-            }}
-
-            .pdf-icone {{
-                font-size: 1.2rem;
-            }}
-
-            .pdf-nome {{
-                font-weight: 700;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-                white-space: normal;
-            }}
-
-            .vazio-anexo {{
-                opacity: 0.72;
-                padding: 0.5rem 0.2rem;
-                font-weight: 700;
+            .sem-resultado {{
+                padding: 1rem 0.5rem;
+                font-weight: 800;
+                color: #666666;
             }}
 
             .modal-overlay {{
                 position: fixed;
                 inset: 0;
-                background: rgba(0,0,0,0.78);
+                background: rgba(0,0,0,0.72);
                 display: none;
+                z-index: 9999;
                 align-items: center;
                 justify-content: center;
-                z-index: 99999;
-                padding: 1rem;
             }}
 
             .modal-overlay.ativo {{
@@ -1121,24 +1021,21 @@ def mostrar_arvore():
             }}
 
             .modal-box {{
-                position: relative;
-                width: min(96vw, 1200px);
-                height: min(92vh, 900px);
-                background: #111111;
-                border-radius: 14px;
+                width: min(96vw, 1320px);
+                height: min(92vh, 920px);
+                background: #101010;
+                border-radius: 16px;
                 overflow: hidden;
-                box-shadow: 0 18px 50px rgba(0,0,0,0.35);
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 10px 35px rgba(0,0,0,0.35);
             }}
 
             .modal-header {{
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                z-index: 3;
+                width: 100%;
                 display: flex;
-                justify-content: space-between;
                 align-items: center;
+                justify-content: space-between;
                 gap: 0.8rem;
                 padding: 0.75rem 0.9rem;
                 background: rgba(0,0,0,0.62);
@@ -1205,6 +1102,10 @@ def mostrar_arvore():
                     border-left: none;
                     border-top: 1px solid rgba(127, 127, 127, 0.14);
                 }}
+
+                .panel-grid {{
+                    grid-template-columns: 1fr;
+                }}
             }}
         </style>
     </head>
@@ -1248,234 +1149,58 @@ def mostrar_arvore():
                 btn.textContent = aberto ? "+" : "−";
             }}
 
-            function selecionarAtivo(el) {{
-                document.querySelectorAll(".node-label.selected").forEach(n => {{
-                    n.classList.remove("selected");
-                }});
-
-                el.classList.add("selected");
-
-                const raw = el.getAttribute("data-info");
-                if (!raw) return;
-
-                painelAtual = JSON.parse(raw);
-                renderPainelDireito();
+            function escapeHtml(texto) {{
+                return String(texto || "")
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#039;");
             }}
 
-            function escapeHtml(text) {{
-                const div = document.createElement("div");
-                div.textContent = String(text ?? "");
-                return div.innerHTML;
-            }}
-
-            function escapeJs(text) {{
-                return String(text || "")
-                    .replace(/\\\\/g, "\\\\\\\\")
-                    .replace(/'/g, "\\\\'")
-                    .replace(/"/g, '&quot;')
-                    .replace(/\\n/g, ' ')
-                    .replace(/\\r/g, ' ');
-            }}
-
-            function escapeRegExp(text) {{
-                return String(text || "").replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&");
-            }}
-
-            function highlightHtml(text) {{
-                const valor = String(text ?? "");
-                const termo = String(termoBuscaAtual || "").trim();
-
-                if (!termo) {{
-                    return escapeHtml(valor);
-                }}
-
-                const regex = new RegExp(`(${{escapeRegExp(termo)}})`, "ig");
-                return escapeHtml(valor).replace(regex, '<mark class="highlight-mark">$1</mark>');
-            }}
-
-            function renderPainelDireito() {{
-                const panel = document.getElementById("infoPanel");
-
-                if (!painelAtual) {{
-                    panel.innerHTML = `
-                        <div class="panel-empty">
-                            SELECIONE UM ITEM NA ÁRVORE PARA VER AS INFORMAÇÕES
-                        </div>
-                    `;
-                    return;
-                }}
-
-                const titulo = painelAtual.descricao
-                    ? `${{painelAtual.tag}} - ${{painelAtual.descricao}} [${{painelAtual.tipo}}]`
-                    : `${{painelAtual.tag}} [${{painelAtual.tipo}}]`;
-
-                const infoLinhas = [];
-
-                addInfoLinha(infoLinhas, "TAG", painelAtual.tag);
-                addInfoLinha(infoLinhas, "TIPO", painelAtual.tipo);
-                addInfoLinha(infoLinhas, "DESCRIÇÃO", painelAtual.descricao);
-                addInfoLinha(infoLinhas, "PAI", painelAtual.pai);
-                addInfoLinha(infoLinhas, "TAG COMPONENTE", painelAtual.tag_local);
-                addInfoLinha(infoLinhas, "FABRICANTE", painelAtual.fabricante);
-                addInfoLinha(infoLinhas, "MODELO", painelAtual.modelo);
-                addInfoLinha(infoLinhas, "OBSERVAÇÕES", painelAtual.observacoes);
-                addInfoLinha(infoLinhas, "QTD. FOTOS", String((painelAtual.fotos || []).length));
-                addInfoLinha(infoLinhas, "QTD. PDFs", String((painelAtual.pdfs || []).length));
-
-                let pecasHtml = "";
-                const pecas = painelAtual.pecas || [];
-
-                if (pecas.length) {{
-                    pecasHtml += `<div class="section-title">PEÇAS</div>`;
-                    pecasHtml += `<ul class="pecas-lista">`;
-
-                    for (const p of pecas) {{
-                        pecasHtml +=
-                            `<li><b>${{highlightHtml(String(p.funcao).toUpperCase())}}</b> | ` +
-                            `${{highlightHtml(String(p.texto).toUpperCase())}} | ` +
-                            `QTD: ${{highlightHtml(String(p.quantidade).toUpperCase())}}</li>`;
-                    }}
-
-                    pecasHtml += `</ul>`;
-                }}
-
-                panel.innerHTML = `
-                    <div class="asset-title">${{highlightHtml(titulo.toUpperCase())}}</div>
-
-                    <div class="section-title">DETALHES</div>
-                    <div class="info-grid">
-                        ${{infoLinhas.join("")}}
-                    </div>
-
-                    ${{pecasHtml}}
-
-                    <div class="anexos-bloco">
-                        <div class="section-title">📎 ANEXOS</div>
-
-                        <div class="section-title">🖼️ FOTOS</div>
-                        <div id="fotosGrid"></div>
-
-                        <div class="section-title">📄 PDFS</div>
-                        <div id="pdfLista"></div>
+            function montarInfoBox(rotulo, valor) {{
+                const valorFinal = String(valor || "-").trim() || "-";
+                return `
+                    <div class="info-box">
+                        <div class="info-label">${{escapeHtml(rotulo)}}</div>
+                        <div class="info-value">${{escapeHtml(valorFinal)}}</div>
                     </div>
                 `;
-
-                renderFotosPainel();
-                renderPdfsPainel();
             }}
 
-            function addInfoLinha(lista, rotulo, valor) {{
-                if (!valor) return;
-
-                lista.push(
-                    `<div class="info-line"><b>${{escapeHtml(rotulo)}}:</b> ` +
-                    `${{highlightHtml(String(valor).toUpperCase())}}</div>`
-                );
-            }}
-
-            function renderFotosPainel() {{
-                const fotosGrid = document.getElementById("fotosGrid");
-                if (!fotosGrid || !painelAtual) return;
-
-                const fotos = painelAtual.fotos || [];
-
-                if (!fotos.length) {{
-                    fotosGrid.innerHTML = `<div class="vazio-anexo">SEM FOTOS</div>`;
-                    return;
-                }}
-
-                let htmlFotos = `<div class="fotos-grid">`;
-
-                fotos.forEach((foto) => {{
-                    htmlFotos += `
-                        <div
-                            class="foto-card"
-                            title="${{escapeHtml(foto.nome)}}"
-                            onclick="abrirImagemModal('${{foto.src}}', '${{escapeJs(foto.nome)}}')"
-                        >
-                            <img src="${{foto.src}}" alt="${{escapeHtml(foto.nome)}}" />
-                            <div class="foto-nome">${{highlightHtml(String(foto.nome).toUpperCase())}}</div>
-                        </div>
-                    `;
-                }});
-
-                htmlFotos += `</div>`;
-                fotosGrid.innerHTML = htmlFotos;
-            }}
-
-            function renderPdfsPainel() {{
-                const pdfLista = document.getElementById("pdfLista");
-                if (!pdfLista || !painelAtual) return;
-
-                const pdfs = painelAtual.pdfs || [];
-
-                if (!pdfs.length) {{
-                    pdfLista.innerHTML = `<div class="vazio-anexo">SEM PDFS</div>`;
-                    return;
-                }}
-
-                let htmlPdf = `<div class="pdf-lista">`;
-
-                pdfs.forEach((pdf) => {{
-                    htmlPdf += `
-                        <div
-                            class="pdf-card"
-                            onclick="abrirPdfModal('${{pdf.src}}', '${{escapeJs(pdf.nome)}}')"
-                            title="${{escapeHtml(pdf.nome)}}"
-                        >
-                            <div class="pdf-topo">
-                                <div class="pdf-icone">📄</div>
-                                <div class="pdf-nome">${{highlightHtml(String(pdf.nome).toUpperCase())}}</div>
-                            </div>
-                        </div>
-                    `;
-                }});
-
-                htmlPdf += `</div>`;
-                pdfLista.innerHTML = htmlPdf;
-            }}
-
-            function abrirImagemModal(src, nome) {{
+            function abrirImagem(nome, src) {{
                 const overlay = document.getElementById("modalOverlay");
                 const conteudo = document.getElementById("modalConteudo");
-                const titulo = document.getElementById("modalTitle");
                 const actions = document.getElementById("modalActions");
+                const titulo = document.getElementById("modalTitle");
 
-                if (!overlay || !conteudo || !titulo || !actions) return;
+                if (!overlay || !conteudo || !actions || !titulo) return;
 
-                titulo.textContent = String(nome || "IMAGEM").toUpperCase();
-
+                titulo.textContent = nome || "IMAGEM";
                 actions.innerHTML = `
-                    <a class="modal-btn" href="${{src}}" download="${{escapeHtml(nome || 'imagem')}}">DOWNLOAD</a>
+                    <a class="modal-btn" href="${{src}}" download="${{escapeHtml(nome || 'imagem')}}">BAIXAR</a>
                     <button class="modal-btn" type="button" onclick="fecharModal()">FECHAR</button>
                 `;
-
-                conteudo.innerHTML = `
-                    <img src="${{src}}" alt="${{escapeHtml(nome || 'IMAGEM')}}" />
-                `;
-
+                conteudo.innerHTML = `<img src="${{src}}" alt="${{escapeHtml(nome || 'imagem')}}" />`;
                 overlay.classList.add("ativo");
             }}
 
-            function abrirPdfModal(src, nome) {{
+            function abrirPdf(nome, src) {{
                 const overlay = document.getElementById("modalOverlay");
                 const conteudo = document.getElementById("modalConteudo");
-                const titulo = document.getElementById("modalTitle");
                 const actions = document.getElementById("modalActions");
+                const titulo = document.getElementById("modalTitle");
 
-                if (!overlay || !conteudo || !titulo || !actions) return;
+                if (!overlay || !conteudo || !actions || !titulo) return;
 
-                titulo.textContent = String(nome || "PDF").toUpperCase();
-
+                titulo.textContent = nome || "PDF";
                 actions.innerHTML = `
-                    <a class="modal-btn" href="${{src}}" download="${{escapeHtml(nome || 'arquivo.pdf')}}">DOWNLOAD</a>
+                    <a class="modal-btn" href="${{src}}" download="${{escapeHtml(nome || 'arquivo.pdf')}}">BAIXAR</a>
                     <button class="modal-btn" type="button" onclick="fecharModal()">FECHAR</button>
                 `;
-
                 conteudo.innerHTML = `
                     <iframe src="${{src}}" title="${{escapeHtml(nome || 'PDF')}}"></iframe>
                 `;
-
                 overlay.classList.add("ativo");
             }}
 
@@ -1498,6 +1223,90 @@ def mostrar_arvore():
                 conteudo.innerHTML = "";
                 actions.innerHTML = "";
                 titulo.textContent = "VISUALIZAÇÃO";
+            }}
+
+            function selecionarAtivo(botao) {{
+                try {{
+                    const bruto = botao.getAttribute("data-info");
+                    if (!bruto) return;
+
+                    const info = JSON.parse(bruto);
+                    painelAtual = info;
+
+                    document.querySelectorAll(".node-label.selecionado").forEach(el => {{
+                        el.classList.remove("selecionado");
+                    }});
+                    botao.classList.add("selecionado");
+
+                    const panel = document.getElementById("infoPanel");
+                    if (!panel) return;
+
+                    let pecasHtml = "";
+                    if (Array.isArray(info.pecas) && info.pecas.length) {{
+                        pecasHtml += `<div class="secao-titulo">PEÇAS</div>`;
+                        info.pecas.forEach(peca => {{
+                            pecasHtml += `
+                                <div class="peca-card">
+                                    <div><strong>FUNÇÃO:</strong> ${{escapeHtml(peca.funcao || "-")}}</div>
+                                    <div><strong>PEÇA:</strong> ${{escapeHtml(peca.texto || "-")}}</div>
+                                    <div><strong>QTD:</strong> ${{escapeHtml(peca.quantidade || 0)}}</div>
+                                </div>
+                            `;
+                        }});
+                    }}
+
+                    let fotosHtml = "";
+                    if (Array.isArray(info.fotos) && info.fotos.length) {{
+                        fotosHtml += `<div class="secao-titulo">IMAGENS</div>`;
+                        info.fotos.forEach((foto, i) => {{
+                            fotosHtml += `
+                                <div class="arquivo-card">
+                                    <div><strong>ARQUIVO:</strong> ${{escapeHtml(foto.nome || `IMAGEM ${{i+1}}`)}}</div>
+                                    <div class="arquivo-actions">
+                                        <button class="arquivo-btn" type="button" onclick="abrirImagem('${{String(foto.nome || '').replaceAll("'", "\\\\'")}}', '${{foto.src}}')">VISUALIZAR</button>
+                                    </div>
+                                </div>
+                            `;
+                        }});
+                    }}
+
+                    let pdfsHtml = "";
+                    if (Array.isArray(info.pdfs) && info.pdfs.length) {{
+                        pdfsHtml += `<div class="secao-titulo">PDFS</div>`;
+                        info.pdfs.forEach((pdf, i) => {{
+                            pdfsHtml += `
+                                <div class="arquivo-card">
+                                    <div><strong>ARQUIVO:</strong> ${{escapeHtml(pdf.nome || `PDF ${{i+1}}`)}}</div>
+                                    <div class="arquivo-actions">
+                                        <button class="arquivo-btn" type="button" onclick="abrirPdf('${{String(pdf.nome || '').replaceAll("'", "\\\\'")}}', '${{pdf.src}}')">VISUALIZAR</button>
+                                    </div>
+                                </div>
+                            `;
+                        }});
+                    }}
+
+                    panel.innerHTML = `
+                        <div class="panel-header">
+                            <div class="panel-title">${{escapeHtml(info.tag || "SEM TAG")}}</div>
+                            <div class="panel-subtitle">${{escapeHtml(info.descricao || "-")}}</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="panel-grid">
+                                ${{montarInfoBox("TIPO", info.tipo)}}
+                                ${{montarInfoBox("TAG LOCAL", info.tag_local)}}
+                                ${{montarInfoBox("PAI", info.pai)}}
+                                ${{montarInfoBox("FABRICANTE", info.fabricante)}}
+                                ${{montarInfoBox("MODELO", info.modelo)}}
+                                ${{montarInfoBox("OBSERVAÇÕES", info.observacoes)}}
+                            </div>
+                            ${{pecasHtml}}
+                            ${{fotosHtml}}
+                            ${{pdfsHtml}}
+                        </div>
+                    `;
+                }} catch (e) {{
+                    console.error(e);
+                }}
             }}
 
             function habilitarResize() {{
