@@ -4,6 +4,7 @@
 import base64
 import hashlib
 import hmac
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -56,7 +57,17 @@ def mime_type_from_path(path: Path) -> str:
         return "image/jpeg"
     if ext == ".png":
         return "image/png"
+    if ext == ".webp":
+        return "image/webp"
     return "image/png"
+
+
+def logo_to_data_url(path: Path) -> str:
+    if not path or not path.exists():
+        return ""
+    mime = mime_type_from_path(path)
+    b64 = image_to_base64(path)
+    return f"data:{mime};base64,{b64}"
 
 
 def hash_password(password: str) -> str:
@@ -75,6 +86,84 @@ def limpar_cache_usuarios():
         _cache_has_any_user.clear()
     except Exception:
         pass
+
+
+def navegar_para(pagina_destino: str):
+    if st.session_state.pagina != pagina_destino:
+        st.session_state.pagina = pagina_destino
+        st.session_state._mostrar_splash = True
+        st.rerun()
+
+
+def mostrar_splash_transicao():
+    logo_data_url = logo_to_data_url(LOGO_FILE)
+    if not logo_data_url:
+        return
+
+    st.markdown(
+        f"""
+        <style>
+        .fsl-splash-overlay {{
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background:
+                radial-gradient(circle at center, rgba(255,255,255,0.97) 0%, rgba(245,247,250,0.98) 45%, rgba(232,238,245,0.99) 100%);
+            animation: fslSplashFade 0.90s ease forwards;
+            pointer-events: none;
+        }}
+
+        .fsl-splash-logo {{
+            width: 220px;
+            max-width: 42vw;
+            opacity: 0;
+            transform: scale(1.45);
+            filter: drop-shadow(0 18px 34px rgba(0,0,0,0.16));
+            animation: fslSplashLogo 0.90s cubic-bezier(.2,.8,.2,1) forwards;
+        }}
+
+        @keyframes fslSplashLogo {{
+            0% {{
+                opacity: 0;
+                transform: scale(1.45);
+            }}
+            18% {{
+                opacity: 1;
+                transform: scale(1.18);
+            }}
+            100% {{
+                opacity: 0;
+                transform: scale(0.72);
+            }}
+        }}
+
+        @keyframes fslSplashFade {{
+            0%, 82% {{
+                opacity: 1;
+                visibility: visible;
+            }}
+            100% {{
+                opacity: 0;
+                visibility: hidden;
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .fsl-splash-logo {{
+                width: 160px;
+            }}
+        }}
+        </style>
+
+        <div class="fsl-splash-overlay">
+            <img class="fsl-splash-logo" src="{logo_data_url}" alt="Logo" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # =========================================================
@@ -255,6 +344,7 @@ def inicializar_estado():
         "pagina": "",
         "usuario_logado": None,
         "perfil_logado": None,
+        "_mostrar_splash": False,
     }
 
     for chave, valor in padrao.items():
@@ -296,11 +386,15 @@ def aplicar_css_global():
         background: transparent !important;
     }}
 
-    .block-container {{
+    .block-container,
+    .main .block-container,
+    .stAppViewBlockContainer,
+    [data-testid="stAppViewContainer"] .main,
+    section.main {{
+        padding-left: 1.20rem !important;
+        padding-right: 1.20rem !important;
         padding-top: 1rem !important;
         padding-bottom: 1rem !important;
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
         max-width: 100% !important;
     }}
 
@@ -323,83 +417,89 @@ def aplicar_css_global():
         padding-right: 1rem !important;
     }}
 
-    /* wrappers de input para evitar corte */
     div[data-testid="stTextInput"],
     div[data-testid="stTextArea"],
     div[data-testid="stNumberInput"],
     div[data-testid="stSelectbox"],
     div[data-testid="stDateInput"],
-    div[data-testid="stTimeInput"] {{
-        padding: 4px 0 !important;
+    div[data-testid="stTimeInput"],
+    div[data-testid="stFileUploader"] {{
+        padding: 0 !important;
+        margin-bottom: 0.55rem !important;
     }}
 
     div[data-testid="stTextInput"] > div,
     div[data-testid="stTextArea"] > div,
     div[data-testid="stNumberInput"] > div,
-    div[data-testid="stSelectbox"] > div {{
+    div[data-testid="stSelectbox"] > div,
+    div[data-testid="stDateInput"] > div,
+    div[data-testid="stTimeInput"] > div {{
         overflow: visible !important;
     }}
 
-    /* inputs */
-    div[data-testid="stTextInput"] input,
-    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] > div > div > input,
+    div[data-testid="stNumberInput"] > div > div > input,
     div[data-testid="stTextArea"] textarea,
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
-        background-color: rgba(255,255,255,0.96) !important;
+    div[data-baseweb="select"] > div,
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stTimeInput"] input {{
+        min-height: 48px !important;
+        padding: 0.72rem 0.95rem !important;
+        border-radius: 14px !important;
+        border: 1px solid rgba(15, 23, 42, 0.16) !important;
+        background: rgba(255,255,255,0.96) !important;
         color: #111111 !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(15, 23, 42, 0.14) !important;
         box-shadow: none !important;
-        min-height: 46px !important;
-        padding-top: 0.60rem !important;
-        padding-bottom: 0.60rem !important;
+        line-height: 1.2 !important;
     }}
 
     div[data-testid="stTextArea"] textarea {{
-        min-height: 110px !important;
+        min-height: 120px !important;
+        padding-top: 0.85rem !important;
+        padding-bottom: 0.85rem !important;
+        resize: vertical !important;
     }}
 
-    /* campo senha com espaço para o olho */
     div[data-testid="stTextInput"] input[type="password"],
     div[data-testid="stTextInput"] input[type="text"] {{
-        padding-left: 0.9rem !important;
-        padding-right: 2.6rem !important;
+        padding-right: 2.75rem !important;
     }}
 
     div[data-testid="stTextInput"] input:focus,
     div[data-testid="stNumberInput"] input:focus,
-    div[data-testid="stTextArea"] textarea:focus {{
+    div[data-testid="stTextArea"] textarea:focus,
+    div[data-testid="stDateInput"] input:focus,
+    div[data-testid="stTimeInput"] input:focus {{
         border: 1px solid #0b3b60 !important;
         box-shadow: 0 0 0 0.14rem rgba(11, 59, 96, 0.18) !important;
     }}
 
     button[title="Show password"],
     button[title="Hide password"] {{
-        color: #334155 !important;
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        border-radius: 10px !important;
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
-        width: 34px !important;
-        height: 34px !important;
-        min-height: 34px !important;
-        min-width: 34px !important;
-        padding: 0 !important;
+        color: #334155 !important;
     }}
 
     button[title="Show password"]:hover,
     button[title="Hide password"]:hover {{
         background: rgba(15, 23, 42, 0.06) !important;
-        border-radius: 10px !important;
     }}
 
-    /* botões gerais */
     .stButton > button,
     div[data-testid="stButton"] > button,
     button[kind="primary"],
     button[kind="secondary"],
     div[data-testid="stFormSubmitButton"] > button {{
         width: 100%;
-        min-height: 42px !important;
+        min-height: 44px !important;
         background-color: #0b3b60 !important;
         color: #ffffff !important;
         border: 1px solid #0b3b60 !important;
@@ -447,7 +547,6 @@ def aplicar_css_global():
         opacity: 1 !important;
     }}
 
-    /* botões da sidebar */
     [data-testid="stSidebar"] .stButton > button,
     [data-testid="stSidebar"] div[data-testid="stButton"] > button {{
         width: 100% !important;
@@ -472,29 +571,6 @@ def aplicar_css_global():
         color: #ffffff !important;
         border: 1px solid #082c47 !important;
         box-shadow: none !important;
-        transform: none !important;
-        filter: none !important;
-        background-image: none !important;
-    }}
-
-    [data-testid="stSidebar"] .stButton > button:active,
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button:active {{
-        background: #082c47 !important;
-        background-color: #082c47 !important;
-        color: #ffffff !important;
-        border: 1px solid #082c47 !important;
-        box-shadow: none !important;
-        transform: none !important;
-        filter: none !important;
-        background-image: none !important;
-    }}
-
-    [data-testid="stSidebar"] .stButton > button:focus,
-    [data-testid="stSidebar"] .stButton > button:focus-visible,
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button:focus,
-    [data-testid="stSidebar"] div[data-testid="stButton"] > button:focus-visible {{
-        outline: none !important;
-        box-shadow: 0 0 0 0.15rem rgba(255,255,255,0.18) !important;
     }}
 
     [data-testid="stSidebar"] .stButton > button:disabled,
@@ -506,7 +582,6 @@ def aplicar_css_global():
         opacity: 1 !important;
     }}
 
-    /* login */
     .login-page-space {{
         height: 3vh;
     }}
@@ -555,16 +630,6 @@ def aplicar_css_global():
         background: transparent !important;
     }}
 
-    div[data-testid="stTextInput"] {{
-        margin-bottom: 0.40rem !important;
-    }}
-
-    @media (max-width: 900px) {{
-        .login-card {{
-            max-width: 520px;
-        }}
-    }}
-
     @media (max-width: 640px) {{
         .login-title {{
             font-size: 2rem;
@@ -575,7 +640,11 @@ def aplicar_css_global():
             border-radius: 18px;
         }}
 
-        .block-container {{
+        .block-container,
+        .main .block-container,
+        .stAppViewBlockContainer,
+        [data-testid="stAppViewContainer"] .main,
+        section.main {{
             padding-left: 0.9rem !important;
             padding-right: 0.9rem !important;
         }}
@@ -642,6 +711,7 @@ def tela_login():
                         st.session_state.usuario_logado = user["username"]
                         st.session_state.perfil_logado = user["role"]
                         st.session_state.pagina = "arvore"
+                        st.session_state._mostrar_splash = True
                         st.rerun()
                     else:
                         st.error(msg)
@@ -749,17 +819,17 @@ def tela_sidebar():
     st.sidebar.divider()
 
     if st.sidebar.button("Árvore", use_container_width=True):
-        st.session_state.pagina = "arvore"
+        navegar_para("arvore")
 
     if st.sidebar.button("Cadastro equipamentos", use_container_width=True):
-        st.session_state.pagina = "cadastro"
+        navegar_para("cadastro")
 
     if st.sidebar.button("Peças", use_container_width=True):
-        st.session_state.pagina = "peca"
+        navegar_para("peca")
 
     if st.session_state.perfil_logado == "admin":
         if st.sidebar.button("Usuários", use_container_width=True):
-            st.session_state.pagina = "usuarios"
+            navegar_para("usuarios")
 
     st.sidebar.divider()
 
@@ -768,26 +838,28 @@ def tela_sidebar():
         st.session_state.pagina = ""
         st.session_state.usuario_logado = None
         st.session_state.perfil_logado = None
+        st.session_state._mostrar_splash = False
         st.rerun()
 
 
 def tela_principal():
     tela_sidebar()
 
+    if st.session_state.get("_mostrar_splash", False):
+        mostrar_splash_transicao()
+        st.session_state._mostrar_splash = False
+        time.sleep(0.08)
+
     pagina = st.session_state.pagina or "arvore"
 
     if pagina == "arvore":
         arvore.mostrar_arvore()
-
     elif pagina == "cadastro":
         cadastro_ativos.mostrar_cadastro()
-
     elif pagina == "peca":
         cadastro_pecas.menu_peca()
-
     elif pagina == "usuarios":
         tela_gerenciar_usuarios()
-
     else:
         st.title("Maintenance APP")
         st.write("Selecione uma opção no menu lateral.")
